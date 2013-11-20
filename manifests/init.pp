@@ -94,8 +94,9 @@ define account(
   $username = $title, $password = '!', $shell = '/bin/bash',
   $manage_home = true, $home_dir = undef,  $home_dir_perms = '0750',
   $create_group = true, $system = false, $uid = undef, $ssh_key = undef,
-  $ssh_key_type = 'ssh-rsa', $groups = [], $ensure = present,
-  $comment= "${title} Puppet-managed User", $gid = 'users'
+  $groups = [], $ensure = present,
+  $comment= "${title} Puppet-managed User", $gid = 'users', $enable_colored_prompt = false,
+  $enable_hostname_prompt = false, $enable_time_prompt = false
 ) {
 
   if $home_dir == undef {
@@ -190,17 +191,33 @@ define account(
       group   => $dir_group,
       mode    => '0700';
   }
-
-  if $ssh_key != undef {
-    File["${title}_sshdir"]->
-    ssh_authorized_key {
-      $title:
-        ensure  => $ensure,
-        type    => $ssh_key_type,
-        name    => "${title} SSH Key",
-        user    => $username,
-        key     => $ssh_key,
+  if $enable_colored_prompt == true {
+    exec { "enable-colored-prompt-${title}" :
+      path    => '/bin:/sbin:/usr/bin:/usr/sbin',
+      command => "sed -i -e \"s/#force_color_prompt=yes/force_color_prompt=yes/\" ${home_dir_real}/.bashrc",
+      onlyif  => "grep \"#force_color_prompt\" ${home_dir_real}/.bashrc",
+      require => [ User [ $title ], File [ "${title}_home" ] ],
     }
+  }
+  if $enable_hostname_prompt == true {
+    exec { "enable-hostname-prompt-${title}" :
+      path    => '/bin:/sbin:/usr/bin:/usr/sbin',
+      command => "sed -i -e \"s/\\\\\u@\\\\\h/\\\\\u@${common::hosts[$::fqdn]['host_aliases'][0]}/g\" ${home_dir_real}/.bashrc",
+      unless  => "grep \"@${common::hosts[$::fqdn]['host_aliases'][0]}\" ${home_dir_real}/.bashrc",
+      require => [ User [ $title ], File [ "${title}_home" ] ],
+    }
+  }
+  if $enable_time_prompt == true {
+    exec { "enable-time-prompt-${title}" :
+      path    => '/bin:/sbin:/usr/bin:/usr/sbin',
+      command => "sed -i -e \"s/\\\\\\\\w\\\\\\\\\\[/\\\\\\\\w [\\\\\\\\t]\\\\\\\\\\[/\" ${home_dir_real}/.bashrc",
+      unless  => "grep \"\\\\\\\\w \\\\[\\\\\\\\t]\\\\\\\\\\[\" ${home_dir_real}/.bashrc",
+      require => [ User [ $title ], File [ "${title}_home" ] ],
+    }
+  }
+  if $ssh_key != undef {
+    validate_hash($ssh_key)
+    create_resources('account::ssh_authorized_key', $ssh_key)
   }
 }
 
